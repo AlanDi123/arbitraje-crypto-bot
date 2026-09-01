@@ -43,6 +43,35 @@ class Position:
     status: str = "open"
 
 
+@dataclass
+class FeeStructure:
+    exchange_id: str
+    withdrawal_fee_usdt: float
+    withdrawal_fee_ars: float
+    deposit_fee_ars: float
+    trading_fee_percent: float
+
+
+@dataclass
+class ArbitrageRoute:
+    buy_exchange: str
+    sell_exchange: str
+    buy_price: float
+    sell_price: float
+    amount_usdt: float
+    amount_ars_invested: float
+    trading_fee_buy: float
+    trading_fee_sell: float
+    withdrawal_fee_usdt: float
+    withdrawal_fee_ars: float
+    gross_profit_ars: float
+    total_fees_ars: float
+    net_profit_ars: float
+    net_profit_percent: float
+    timestamp: datetime = field(default_factory=datetime.now)
+    is_profitable: bool = False
+
+
 class ArbitrageEngine:
     """
     Motor principal de arbitraje multi-exchange.
@@ -53,12 +82,18 @@ class ArbitrageEngine:
         self,
         config: Config,
         exchange_manager: ExchangeManager,
-        trade_logger: TradeLogger
+        trade_logger: TradeLogger,
+        ml_trader=None,
+        news_analyzer=None,
+        simulation_mode: bool = True,
     ):
         self.config = config
         self.exchange_manager = exchange_manager
         self.logger = trade_logger
         self.base_logger = setup_logger("arbitrage.engine")
+        self.ml_trader = ml_trader
+        self.news_analyzer = news_analyzer
+        self.simulation_mode = simulation_mode
 
         self.is_running = False
         self.current_positions: List[Position] = []
@@ -71,6 +106,8 @@ class ArbitrageEngine:
         self.total_profit = 0
         self.total_volume = 0
 
+        self.paused = False
+
     async def start(self) -> None:
         """Inicia el motor de arbitraje."""
         self.is_running = True
@@ -79,7 +116,12 @@ class ArbitrageEngine:
 
         while self.is_running:
             try:
-                await self.check_opportunities()
+                if self.news_analyzer and self.news_analyzer.should_pause_trading():
+                    self.paused = True
+                elif self.paused:
+                    self.paused = False
+                if not self.paused:
+                    await self.check_opportunities()
                 await asyncio.sleep(1)
             except asyncio.CancelledError:
                 break

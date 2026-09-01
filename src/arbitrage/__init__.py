@@ -1,20 +1,12 @@
 """Módulo de arbitraje."""
 
-from .engine import ArbitrageEngine, ArbitrageOpportunity, Position
+from .engine import ArbitrageEngine, ArbitrageRoute, FeeStructure
 from .backtester import Backtester, BacktestResult
-from .smart_engine import SmartArbitrageEngine, TriangularRoute, MultiExchangeRoute
-from .smart_engine_fees import SmartArbitrageEngineWithFees, FeeStructure, TriangularRoute as TriangularRouteWithFees
 
 __all__ = [
     "ArbitrageEngine",
-    "ArbitrageOpportunity",
-    "Position",
+    "ArbitrageRoute",
+    "FeeStructure",
     "Backtester",
     "BacktestResult",
-    "SmartArbitrageEngine",
-    "TriangularRoute",
-    "MultiExchangeRoute",
-    "SmartArbitrageEngineWithFees",
-    "FeeStructure",
-    "TriangularRouteWithFees",
 ]

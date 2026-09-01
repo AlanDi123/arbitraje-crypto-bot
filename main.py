@@ -5,9 +5,11 @@ Este bot ejecuta operaciones de arbitraje entre Binance y exchanges argentinos,
 analizando noticias en tiempo real y usando machine learning para optimizar decisiones.
 
 Uso:
-    python main.py          # Iniciar el bot
-    python main.py --test   # Modo prueba (sin operaciones reales)
-    python main.py --backtest  # Ejecutar backtesting
+    python main.py --simulation   # Modo SIMULACIÓN (recomendado para empezar)
+    python main.py --test         # Modo prueba (idéntico a --simulation)
+    python main.py --backtest     # Ejecutar backtesting (estimación aproximada, ver docstring de Backtester)
+    python main.py                # Modo REAL — requiere además CONFIRM_REAL_TRADING=YES_I_UNDERSTAND_THE_RISK
+                                   # en el .env, o el motor se niega y arranca en simulación igual.
 """
 
 import asyncio
@@ -25,7 +27,7 @@ from src.utils import (
     TelegramNotifier,
 )
 from src.api import ExchangeManager
-from src.arbitrage import ArbitrageEngine, Backtester, SmartArbitrageEngineWithFees
+from src.arbitrage import ArbitrageEngine, Backtester
 from src.news import NewsAnalyzer
 from src.ml import MLTrader
 from src.tui import TUIDashboard
@@ -85,6 +87,9 @@ class ArbitrageBot:
         
         self.logger.info("✅ Configuración validada")
 
+        for warning in self.config.optional_warnings():
+            self.logger.warning(f"⚠️ {warning}")
+
         # Inicializar exchanges
         self.exchange_manager = ExchangeManager(self.config)
         connected = await self.exchange_manager.connect_all()
@@ -93,19 +98,17 @@ class ArbitrageBot:
             self.logger.error("❌ Error conectando a los exchanges")
             return False
 
-        # Inicializar motor de arbitraje INTELIGENTE con cálculo de fees
-        self.arbitrage_engine = SmartArbitrageEngineWithFees(
+        self.news_analyzer = NewsAnalyzer(self.config)
+        self.ml_trader = MLTrader(self.config)
+
+        self.arbitrage_engine = ArbitrageEngine(
             self.config,
             self.exchange_manager,
             self.trade_logger,
-            simulation_mode=self.simulation_mode,  # Pasar modo simulación
+            ml_trader=self.ml_trader,
+            news_analyzer=self.news_analyzer,
+            simulation_mode=self.simulation_mode,
         )
-        
-        # Inicializar analizador de noticias
-        self.news_analyzer = NewsAnalyzer(self.config)
-        
-        # Inicializar ML Trader
-        self.ml_trader = MLTrader(self.config)
         
         # Inicializar Telegram
         self.telegram = TelegramNotifier(self.config)
@@ -232,12 +235,6 @@ class ArbitrageBot:
                         'criptoya_prices': criptoya_prices,  # Precios consolidados
                     })
 
-                # Verificar si pausar por noticias
-                if self.news_analyzer.should_pause_trading():
-                    self.logger.warning("⚠️ Trading pausado por noticias de alto impacto")
-                    if self.arbitrage_engine:
-                        self.arbitrage_engine.is_running = False
-
                 await asyncio.sleep(5)
 
             except asyncio.CancelledError:
@@ -320,8 +317,8 @@ async def main():
     # Cargar configuración
     config = Config(args.config)
 
-    # Crear bot
-    bot = ArbitrageBot(config, test_mode=args.test, simulation_mode=args.simulation)
+    # --test es un alias de --simulation: ambos fuerzan modo simulación.
+    bot = ArbitrageBot(config, test_mode=args.test, simulation_mode=args.simulation or args.test)
     
     # Configurar señal de interrupción
     loop = asyncio.get_event_loop()

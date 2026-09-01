@@ -261,7 +261,8 @@ class ExchangeBase(ABC):
         self,
         symbol: str,
         interval: str,
-        limit: int = 100
+        limit: int = 100,
+        since: Optional[int] = None,
     ) -> List[Dict]:
         """Obtiene velas japonesas (klines/candlesticks)."""
         pass
@@ -273,6 +274,19 @@ class ExchangeBase(ABC):
     def is_testnet(self) -> bool:
         """Verifica si es testnet."""
         return self.exchange_info.get('testnet_available', False) and self.exchange_id.endswith('_testnet')
+
+    async def get_deposit_address(self, currency: str, network: Optional[str] = None) -> Dict:
+        if not self.exchange:
+            raise NotImplementedError(f"{self.name} no tiene una conexión CCXT activa")
+        params = {'network': network} if network else {}
+        result = await asyncio.get_event_loop().run_in_executor(None, lambda: self.exchange.fetch_deposit_address(currency, params))
+        return {'address': result.get('address'), 'tag': result.get('tag'), 'network': result.get('network', network)}
+
+    async def withdraw(self, currency: str, amount: float, address: str, network: Optional[str] = None, tag: Optional[str] = None) -> Dict:
+        if not self.exchange:
+            raise NotImplementedError(f"{self.name} no tiene una conexión CCXT activa")
+        params = {'network': network} if network else {}
+        return await asyncio.get_event_loop().run_in_executor(None, lambda: self.exchange.withdraw(currency, amount, address, tag, params))
 
 
 class BinanceAPI(ExchangeBase):
@@ -439,7 +453,8 @@ class BinanceAPI(ExchangeBase):
     async def get_trades_history(
         self,
         symbol: str,
-        limit: int = 100
+        limit: int = 100,
+        since: Optional[int] = None,
     ) -> List[Dict]:
         """Obtiene el historial de operaciones."""
         try:
@@ -462,7 +477,7 @@ class BinanceAPI(ExchangeBase):
         try:
             klines = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.fetch_ohlcv(symbol, interval, limit=limit)
+                lambda: self.exchange.fetch_ohlcv(symbol, interval, since=since, limit=limit)
             )
             
             return [
@@ -706,7 +721,8 @@ class GenericExchangeAPI(ExchangeBase):
     async def get_trades_history(
         self,
         symbol: str,
-        limit: int = 100
+        limit: int = 100,
+        since: Optional[int] = None,
     ) -> List[Dict]:
         """Obtiene el historial de operaciones."""
         try:
@@ -729,7 +745,7 @@ class GenericExchangeAPI(ExchangeBase):
         try:
             klines = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.fetch_ohlcv(symbol, interval, limit=limit)
+                lambda: self.exchange.fetch_ohlcv(symbol, interval, since=since, limit=limit)
             )
             
             return [

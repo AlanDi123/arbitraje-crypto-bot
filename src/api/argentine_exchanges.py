@@ -11,7 +11,7 @@ import base64
 import time
 import urllib.parse
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from datetime import datetime
 import aiohttp
 from ..utils import Config, setup_logger
@@ -116,16 +116,17 @@ class RipioTradeAPI(ArgentineExchangeBase):
             await self.session.close()
             logger.info(f"🔌 Desconectado de {self.name}")
 
-    def _generate_signature(self, method: str, path: str, payload: str = "") -> str:
+    def _generate_signature(self, method: str, path: str, payload: str = "") -> Tuple[str, str]:
         """Genera firma HMAC-SHA256 para autenticación."""
         timestamp = str(int(time.time() * 1000))
         message = f"{timestamp}{method}{path}{payload}"
-        signature = hmac.new(
+        digest = hmac.new(
             self.secret_key.encode(),
             message.encode(),
             hashlib.sha256
-        ).base64encode()
-        return signature.decode(), timestamp
+        ).digest()
+        signature = base64.b64encode(digest).decode()
+        return signature, timestamp
 
     async def get_balance(self, currency: str) -> float:
         """Obtiene el balance de una moneda."""

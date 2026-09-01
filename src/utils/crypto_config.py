@@ -115,6 +115,11 @@ class Config:
         self.stop_loss_percent = float(os.getenv("STOP_LOSS_PERCENT", "5"))
         self.min_profit_percent = float(os.getenv("MIN_PROFIT_PERCENT", "0.5"))
         self.cooldown_seconds = int(os.getenv("COOLDOWN_SECONDS", "30"))
+        self.real_trading_confirmation = os.getenv("CONFIRM_REAL_TRADING", "")
+        self.real_trading_confirmed = self.real_trading_confirmation == "YES_I_UNDERSTAND_THE_RISK"
+        self.max_real_trade_usdt = float(os.getenv("MAX_REAL_TRADE_USDT", str(self.initial_capital)))
+        self.usdt_transfer_network = os.getenv("USDT_TRANSFER_NETWORK", "TRC20")
+        self.transfer_timeout_minutes = int(os.getenv("TRANSFER_TIMEOUT_MINUTES", "20"))
         
         # Configuración de Noticias
         self.news_check_interval = int(os.getenv("NEWS_CHECK_INTERVAL_SECONDS", "300"))
@@ -169,21 +174,29 @@ class Config:
                         os.environ[key.strip()] = value.strip()
     
     def validate(self) -> tuple[bool, list[str]]:
-        """Valida que todas las configuraciones requeridas estén presentes."""
+        """Valida la configuración mínima indispensable."""
         errors = []
         
         if not self.binance_api_key:
             errors.append("BINANCE_API_KEY no configurada")
         if not self.binance_api_secret:
             errors.append("BINANCE_API_SECRET no configurada")
-        if not self.telegram_token:
-            errors.append("TELEGRAM_BOT_TOKEN no configurado")
-        if not self.telegram_chat_id:
-            errors.append("TELEGRAM_CHAT_ID no configurado")
-        if not self.encryption_password:
-            errors.append("ENCRYPTION_PASSWORD no configurada")
+        if not self.argentine_api_key or not self.argentine_api_secret:
+            errors.append(
+                "ARGENTINE_API_KEY / ARGENTINE_API_SECRET no configuradas "
+                f"(necesarias para conectar {self.argentine_exchange.upper()})"
+            )
         
         return len(errors) == 0, errors
+
+    def optional_warnings(self) -> list[str]:
+        """Funcionalidades opcionales sin configurar (no bloquean el arranque)."""
+        warnings = []
+        if not self.telegram_token or not self.telegram_chat_id:
+            warnings.append("Telegram no configurado: no habrá notificaciones")
+        if not self.encryption_password:
+            warnings.append("ENCRYPTION_PASSWORD no configurada: las credenciales quedan en texto plano en .env")
+        return warnings
     
     def to_dict(self) -> Dict[str, Any]:
         """Devuelve la configuración como diccionario (sin datos sensibles)."""

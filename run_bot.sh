@@ -13,6 +13,7 @@
 # ===========================================
 
 set -e
+set -o pipefail
 
 # Configuración
 BOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,8 +107,9 @@ is_running() {
     return 1
 }
 
-# Iniciar el bot
+# Iniciar el bot. $1 = flags extra para pasarle a main.py.
 start_bot() {
+    local extra_args="$1"
     local restart_count=0
     
     log_info "=========================================="
@@ -122,9 +124,11 @@ start_bot() {
         
         # Ejecutar bot
         cd "$BOT_DIR"
-        $PYTHON_CMD "$BOT_SCRIPT" 2>&1 | tee -a "$LOG_FILE"
-        
+        # Permite capturar el fallo de Python para aplicar el reinicio.
+        set +e
+        $PYTHON_CMD "$BOT_SCRIPT" $extra_args 2>&1 | tee -a "$LOG_FILE"
         local exit_code=$?
+        set -e
         
         # Limpiar PID
         rm -f "$PID_FILE"
@@ -212,11 +216,12 @@ show_status() {
     echo ""
 }
 
-# Ejecutar en daemon (background)
+# Ejecutar en daemon (background). $1 = flags a reenviarle al bot.
 run_daemon() {
+    local args="${1:-}"
     log_info "Iniciando en modo daemon..."
 
-    nohup "$0" "${2:-}" > /dev/null 2>&1 &
+    nohup "$0" "$args" > /dev/null 2>&1 &
 
     sleep 2
 
@@ -232,19 +237,21 @@ show_help() {
     echo "Uso: $0 [OPCIÓN]"
     echo ""
     echo "Opciones:"
-    echo "  (ninguna)      Ejecutar el bot en foreground"
-    echo "  --daemon       Ejecutar en background (daemon)"
+    echo "  (ninguna)      Ejecutar el bot en modo SIMULACIÓN (default seguro)"
+    echo "  --daemon       Ejecutar en background, modo SIMULACIÓN (daemon)"
     echo "  --stop         Detener el bot"
     echo "  --status       Mostrar estado del bot"
-    echo "  --simulation   Ejecutar en MODO SIMULACIÓN (sin operaciones reales)"
+    echo "  --simulation   Igual que (ninguna): modo SIMULACIÓN explícito"
+    echo "  --real         Modo REAL — mueve dinero real. Pide confirmación."
+    echo "  --backtest     Ejecutar backtesting (estimación aproximada)"
     echo "  --help         Mostrar esta ayuda"
     echo ""
     echo "Ejemplos:"
-    echo "  $0                  # Ejecutar en foreground"
-    echo "  $0 --daemon         # Ejecutar en background"
+    echo "  $0                  # Simulación en foreground (default seguro)"
+    echo "  $0 --daemon         # Simulación en background"
+    echo "  $0 --real           # REAL — pide confirmación explícita antes de arrancar"
     echo "  $0 --stop           # Detener bot"
     echo "  $0 --status         # Ver estado"
-    echo "  $0 --simulation     # Modo SIMULACIÓN (recomendado para probar)"
 }
 
 # ===========================================
@@ -256,7 +263,7 @@ case "${1:-}" in
         check_dependencies
         check_venv
         check_env
-        run_daemon "$@"
+        run_daemon "--simulation"
         ;;
     --stop)
         stop_bot
@@ -274,8 +281,30 @@ case "${1:-}" in
         log_info "⚠️  LAS OPERACIONES SON SIMULADAS"
         log_info "💡 No se ejecutan órdenes reales"
         log_info "=========================================="
+        start_bot "--simulation"
+        ;;
+    --real)
+        check_dependencies
+        check_venv
+        check_env
+        echo -e "${RED}=========================================="
+        echo -e "⚠️  MODO REAL — ESTO MUEVE DINERO REAL ⚠️"
+        echo -e "==========================================${NC}"
+        echo "Además de esta confirmación, el bot exige CONFIRM_REAL_TRADING="
+        echo "YES_I_UNDERSTAND_THE_RISK en tu .env, o arranca en simulación igual."
+        read -r -p "Escribí 'SI' (en mayúsculas) para continuar: " confirm
+        if [ "$confirm" != "SI" ]; then
+            log_warning "Confirmación no recibida. Cancelando."
+            exit 1
+        fi
+        start_bot ""
+        ;;
+    --backtest)
+        check_dependencies
+        check_venv
+        check_env
         cd "$BOT_DIR"
-        $PYTHON_CMD "$BOT_SCRIPT" --simulation 2>&1 | tee -a "$LOG_FILE"
+        $PYTHON_CMD "$BOT_SCRIPT" --backtest 2>&1 | tee -a "$LOG_FILE"
         ;;
     --help|-h)
         show_help
@@ -284,7 +313,8 @@ case "${1:-}" in
         check_dependencies
         check_venv
         check_env
-        start_bot
+        log_info "Sin flags: arrancando en modo SIMULACIÓN (usá --real para modo real)"
+        start_bot "--simulation"
         ;;
     *)
         log_error "Opción desconocida: $1"

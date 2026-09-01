@@ -10,14 +10,15 @@ Verifica que las API keys tengan los permisos necesarios para:
 
 import asyncio
 import sys
+from pathlib import Path
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-sys.path.insert(0, '/home/whiterman1/Prueba')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.utils import Config
-from src.api import ExchangeManager
+from src.api import ExchangeManager, get_public_ip
 
 
 class PermissionStatus(Enum):
@@ -68,6 +69,7 @@ class APIPermissionVerifier:
         # Verificar cada exchange
         exchanges_to_check = [
             'binance',
+            'mexc',
             'cryptomarket',
             'bitso',
             'bybit',
@@ -117,13 +119,13 @@ class APIPermissionVerifier:
             ticker_check = await self._check_ticker_permission(exchange_id, exchange)
             permissions.append(ticker_check)
             
-            # 4. Verificar creación de órdenes (solo test, no ejecuta)
+            # 4. Verificar capacidad de transferencia sin retirar fondos.
+            transfer_check = await self._check_real_transfer_capability(exchange_id, exchange)
+            permissions.append(transfer_check)
+
+            # 5. La creación de órdenes requiere verificación manual.
             order_check = await self._check_order_permission(exchange_id, exchange)
             permissions.append(order_check)
-            
-            # 5. Verificar permisos de trading
-            trading_check = await self._check_trading_enabled(exchange_id, exchange)
-            permissions.append(trading_check)
             
         except Exception as e:
             connected = False
@@ -207,56 +209,46 @@ class APIPermissionVerifier:
                 required=True,
             )
 
-    async def _check_order_permission(self, exchange_id: str, exchange) -> PermissionCheck:
-        """Verifica permiso de creación de órdenes (sin ejecutar)."""
-        try:
-            # Intentar crear una orden MUY pequeña (0.0001 USDT) para testear
-            # Pero NO la ejecutamos realmente - solo verificamos permisos
-            
-            # Nota: Algunos exchanges no permiten testear sin ejecutar
-            # En ese caso, verificamos que la API key tenga el permiso habilitado
-            
+    async def _check_real_transfer_capability(self, exchange_id: str, exchange) -> PermissionCheck:
+        """Comprueba la capacidad de depósito sin efectuar transferencias."""
+        if not self.exchange_manager.supports_real_transfer(exchange_id):
             return PermissionCheck(
-                name="Crear Órdenes",
-                status=PermissionStatus.UNKNOWN,
-                message="Requiere verificación manual en el exchange",
-                required=True,
+                name="Transferencia Real (retiro/depósito)",
+                status=PermissionStatus.WARNING,
+                message="No soportado por esta integración — solo sirve para simular/comparar precios",
+                required=False,
+            )
+        try:
+            deposit = await exchange.get_deposit_address('USDT', network='TRC20')
+            if deposit and deposit.get('address'):
+                return PermissionCheck(
+                    name="Transferencia Real (retiro/depósito)",
+                    status=PermissionStatus.OK,
+                    message=f"Dirección de depósito USDT obtenida: {deposit['address'][:6]}...",
+                    required=False,
+                )
+            return PermissionCheck(
+                name="Transferencia Real (retiro/depósito)",
+                status=PermissionStatus.WARNING,
+                message=f"No se pudo obtener dirección de depósito: {deposit.get('error', 'sin datos')}",
+                required=False,
             )
         except Exception as e:
             return PermissionCheck(
-                name="Crear Órdenes",
+                name="Transferencia Real (retiro/depósito)",
                 status=PermissionStatus.ERROR,
-                message=f"Error: {str(e)[:50]}",
-                required=True,
+                message=f"Error: {str(e)[:80]}",
+                required=False,
             )
 
-    async def _check_trading_enabled(self, exchange_id: str, exchange) -> PermissionCheck:
-        """Verifica que el trading esté habilitado."""
-        try:
-            # Para Binance, verificamos si puede hacer trading
-            if exchange_id == 'binance':
-                # Verificar si el par USDT/ARS está disponible para trading
-                return PermissionCheck(
-                    name="Trading Habilitado",
-                    status=PermissionStatus.OK,
-                    message="Spot trading habilitado",
-                    required=True,
-                )
-            
-            # Para otros exchanges, asumimos que está habilitado si se conectó
-            return PermissionCheck(
-                name="Trading Habilitado",
-                status=PermissionStatus.OK,
-                message="Verificado",
-                required=True,
-            )
-        except Exception as e:
-            return PermissionCheck(
-                name="Trading Habilitado",
-                status=PermissionStatus.ERROR,
-                message=str(e)[:50],
-                required=True,
-            )
+    async def _check_order_permission(self, exchange_id: str, exchange) -> PermissionCheck:
+        """Indica que el permiso de órdenes requiere confirmación manual."""
+        return PermissionCheck(
+            name="Crear Órdenes",
+            status=PermissionStatus.UNKNOWN,
+            message="No verificable sin ejecutar una orden real — revisalo manualmente en el panel de tu API key",
+            required=True,
+        )
 
     async def _verify_criptoya(self) -> Dict:
         """Verifica conexión con CriptoYa."""
@@ -335,7 +327,11 @@ class APIPermissionVerifier:
             print("\n📋 ACCIONES REQUERIDAS:")
             print("   1. Verificar credenciales de API en los exchanges con error")
             print("   2. Habilitar permisos de Spot Trading en cada exchange")
-            print("   3. Agregar IP whitelist si es requerido (181.27.80.205)")
+            try:
+                public_ip = get_public_ip()
+            except Exception:
+                public_ip = "no se pudo detectar"
+            print(f"   3. Agregar IP whitelist si es requerido ({public_ip})")
             print("\n💡 NOTA:")
             print("   - Binance está listo pero necesita ARS para operar")
             print("   - CryptoMarket/Bitso pueden no tener el par USDT/ARS disponible")

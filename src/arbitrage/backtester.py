@@ -30,12 +30,7 @@ class BacktestResult:
 
 
 class Backtester:
-    """
-    Realiza backtesting de la estrategia de arbitraje.
-    
-    Usa datos históricos de precios para simular operaciones
-    y evaluar el rendimiento potencial.
-    """
+    """Realiza backtesting aproximado con velas históricas de un solo exchange."""
     
     def __init__(self, config: Config, exchange_manager: ExchangeManager):
         self.config = config
@@ -63,7 +58,7 @@ class Backtester:
             Resultado del backtest
         """
         self.logger.info(
-            f"🧪 Iniciando backtest: {start_date.date()} a {end_date.date()} | "
+            f"🧪 Iniciando backtest ESTIMADO (un solo exchange): {start_date.date()} a {end_date.date()} | "
             f"Capital: {initial_capital} USDT"
         )
         
@@ -170,24 +165,24 @@ class Backtester:
         self.logger.info("📡 Obteniendo datos históricos de la API...")
         
         all_klines = []
-        current_date = start_date
-        
-        while current_date < end_date:
+        since_ms = int(start_date.timestamp() * 1000)
+        end_ms = int(end_date.timestamp() * 1000)
+
+        while since_ms < end_ms:
             try:
-                # Obtener klines de 1 hora
                 klines = await self.exchange_manager.binance.get_klines(
                     symbol='USDT/ARS',
                     interval='1h',
-                    limit=500
+                    limit=500,
+                    since=since_ms,
                 )
-                
-                if klines:
-                    all_klines.extend(klines)
-                
-                # Avanzar aproximadamente 500 horas
-                current_date += timedelta(hours=500)
-                
-                # Rate limit
+                if not klines:
+                    break
+                all_klines.extend(klines)
+                last_ts = klines[-1]['timestamp']
+                if last_ts <= since_ms:
+                    break
+                since_ms = last_ts + 1
                 await asyncio.sleep(1)
                 
             except Exception as e:
@@ -253,8 +248,9 @@ class Backtester:
         console = Console()
         
         console.print("\n[bold blue]═══════════════════════════════════════════════════════[/bold blue]")
-        console.print("[bold blue]           RESULTADOS DEL BACKTESTING[/bold blue]")
-        console.print("[bold blue]═══════════════════════════════════════════════════════[/bold blue]\n")
+        console.print("[bold blue]      RESULTADOS DEL BACKTESTING (ESTIMACIÓN)[/bold blue]")
+        console.print("[bold blue]═══════════════════════════════════════════════════════[/bold blue]")
+        console.print("[yellow]⚠️ El spread se estima con datos de Binance; no es un resultado dual-exchange verificado.[/yellow]\n")
         
         # Tabla de resumen
         table = Table(show_header=False, box=None)
